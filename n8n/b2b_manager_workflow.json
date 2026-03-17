@@ -1,0 +1,1565 @@
+{
+  "updatedAt": "2026-03-17T07:02:36.414Z",
+  "createdAt": "2026-03-17T05:55:10.809Z",
+  "id": "8vGgyI6xgLzlPy67",
+  "name": "Dariger B2B Manager",
+  "description": null,
+  "active": false,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "whatsapp-incoming",
+        "options": {
+          "rawBody": true
+        }
+      },
+      "id": "wa-webhook",
+      "name": "WA Incoming Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "b2b-wa-incoming"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Extract WhatsApp message from Meta webhook payload\nconst body = $json.body || $json;\n\n// Handle verification challenge (GET)\nif ($json.query && $json.query['hub.verify_token']) {\n  return { challenge: $json.query['hub.challenge'] };\n}\n\n// Extract message data\nconst entry = body.entry?.[0];\nconst changes = entry?.changes?.[0];\nconst value = changes?.value;\n\nif (!value) return { skip: true };\n\n// Handle status updates separately\nif (value.statuses && value.statuses.length > 0) {\n  const status = value.statuses[0];\n  return {\n    type: 'status',\n    wa_message_id: status.id,\n    status: status.status, // sent, delivered, read, failed\n    timestamp: status.timestamp,\n    recipient_id: status.recipient_id,\n    errors: status.errors || null\n  };\n}\n\n// Handle incoming messages\nif (value.messages && value.messages.length > 0) {\n  const msg = value.messages[0];\n  const contact = value.contacts?.[0];\n  \n  return {\n    type: 'message',\n    wa_message_id: msg.id,\n    from: msg.from, // phone number\n    contact_name: contact?.profile?.name || '',\n    timestamp: msg.timestamp,\n    message_type: msg.type, // text, image, document, etc.\n    body: msg.text?.body || msg.caption || '',\n    media_id: msg.image?.id || msg.document?.id || msg.audio?.id || null\n  };\n}\n\nreturn { skip: true };"
+      },
+      "id": "extract-wa-data",
+      "name": "Extract WA Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        250,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "type-check",
+              "leftValue": "={{ $json.type }}",
+              "rightValue": "message",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "is-message",
+      "name": "Is Message?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        500,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://tvhrmrgsjwzmxdxipqmy.supabase.co/rest/v1/rpc/b2b_handle_incoming",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"p_phone\": \"{{ $json.from }}\",\n  \"p_body\": {{ JSON.stringify($json.body) }},\n  \"p_wa_message_id\": \"{{ $json.wa_message_id }}\",\n  \"p_message_type\": \"{{ $json.message_type }}\",\n  \"p_contact_name\": {{ JSON.stringify($json.contact_name) }}\n}",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        },
+        "genericCredentialType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer YOUR_SUPABASE_SERVICE_ROLE_KEY"
+            }
+          ]
+        }
+      },
+      "id": "save-incoming-msg",
+      "name": "Save to Supabase",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        750,
+        -100
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "bObRKs6h7LauVblb",
+          "name": "Supabase B2B Service Role"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://tvhrmrgsjwzmxdxipqmy.supabase.co/rest/v1/b2b_conversations?contact_id=eq.{{ $('Save to Supabase').item.json.contact_id }}&select=ai_enabled,ai_context,language",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        },
+        "genericCredentialType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer YOUR_SUPABASE_SERVICE_ROLE_KEY"
+            }
+          ]
+        }
+      },
+      "id": "get-conversation",
+      "name": "Get Conversation",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1000,
+        -100
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "bObRKs6h7LauVblb",
+          "name": "Supabase B2B Service Role"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "ai-enabled",
+              "leftValue": "={{ $json[0]?.ai_enabled }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "ai-enabled-check",
+      "name": "AI Enabled?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1250,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const conv = $('Get Conversation').first().json[0] || {};\nconst incoming = $('Extract WA Data').first().json;\n\n// Get AI context from conversation\nconst aiContext = conv.ai_context || {};\nconst history = aiContext.messages || [];\nconst language = conv.language || 'ru';\n\n// Add new message to history\nhistory.push({\n  role: 'user',\n  content: incoming.body\n});\n\n// Keep only last 20 messages for context\nconst trimmedHistory = history.slice(-20);\n\nreturn {\n  contact_id: $('Save to Supabase').first().json.contact_id,\n  phone: incoming.from,\n  language: language,\n  messages: trimmedHistory,\n  user_message: incoming.body\n};"
+      },
+      "id": "prepare-ai-context",
+      "name": "Prepare AI Context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1500,
+        -200
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"gpt-4.1\",\n  \"temperature\": 0.7,\n  \"max_tokens\": 500,\n  \"messages\": [\n    {\n      \"role\": \"system\",\n      \"content\": \"Ты менеджер по продажам компании Dariger — производителя медицинской одежды в Казахстане. Ты общаешься по WhatsApp с потенциальными B2B клиентами (клиники, салоны, стоматологии). Твоя цель — заинтересовать клиента, ответить на вопросы о продукции и привести к покупке. Будь вежливым, профессиональным и кратким. Отвечай на том языке, на котором пишет клиент (русский или казахский). Если клиент явно не заинтересован, вежливо попрощайся. Если клиент горячий (хочет купить, спрашивает цены) — упомяни что менеджер свяжется для оформления заказа.\"\n    },\n    {{ JSON.stringify($json.messages).slice(1, -1) }}\n  ]\n}",
+        "options": {
+          "timeout": 30000,
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "openai-chat",
+      "name": "OpenAI GPT-4.1",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1750,
+        -200
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "OPENAI_HEADER_AUTH",
+          "name": "OpenAI API Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const response = $json;\nconst aiReply = response.choices?.[0]?.message?.content || 'Извините, попробуйте позже.';\nconst prevData = $('Prepare AI Context').first().json;\n\n// Detect hot lead signals\nconst hotKeywords = ['цена', 'прайс', 'стоимость', 'заказ', 'купить', 'оптом', 'баға', 'тапсырыс'];\nconst isHotLead = hotKeywords.some(kw => \n  prevData.user_message.toLowerCase().includes(kw)\n);\n\n// Detect language\nconst kazChars = /[әғқңөұүһі]/i;\nconst detectedLang = kazChars.test(prevData.user_message) ? 'kz' : 'ru';\n\nreturn {\n  contact_id: prevData.contact_id,\n  phone: prevData.phone,\n  ai_reply: aiReply,\n  is_hot_lead: isHotLead,\n  language: detectedLang,\n  updated_messages: [\n    ...prevData.messages,\n    { role: 'assistant', content: aiReply }\n  ]\n};"
+      },
+      "id": "process-ai-response",
+      "name": "Process AI Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2000,
+        -200
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://graph.facebook.com/v21.0/PLACEHOLDER_WA_PHONE_NUMBER_ID/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"messaging_product\": \"whatsapp\",\n  \"to\": \"{{ $json.phone }}\",\n  \"type\": \"text\",\n  \"text\": {\n    \"body\": {{ JSON.stringify($json.ai_reply) }}\n  }\n}",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "send-wa-reply",
+      "name": "Send WA Reply",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2250,
+        -200
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "META_WA_AUTH",
+          "name": "Meta WhatsApp Token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://tvhrmrgsjwzmxdxipqmy.supabase.co/rest/v1/b2b_messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"contact_id\": \"{{ $('Process AI Response').item.json.contact_id }}\",\n  \"direction\": \"outbound\",\n  \"message_type\": \"text\",\n  \"body\": {{ JSON.stringify($('Process AI Response').item.json.ai_reply) }},\n  \"status\": \"sent\",\n  \"is_ai_generated\": true,\n  \"wa_message_id\": \"{{ $json.messages?.[0]?.id || '' }}\"\n}",
+        "options": {},
+        "genericCredentialType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer YOUR_SUPABASE_SERVICE_ROLE_KEY"
+            }
+          ]
+        }
+      },
+      "id": "save-ai-reply",
+      "name": "Save AI Reply",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2500,
+        -200
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "bObRKs6h7LauVblb",
+          "name": "Supabase B2B Service Role"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "=https://tvhrmrgsjwzmxdxipqmy.supabase.co/rest/v1/b2b_conversations?contact_id=eq.{{ $('Process AI Response').item.json.contact_id }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"ai_context\": { \"messages\": {{ JSON.stringify($('Process AI Response').item.json.updated_messages) }} },\n  \"language\": \"{{ $('Process AI Response').item.json.language }}\",\n  \"last_message_at\": \"{{ new Date().toISOString() }}\"\n}",
+        "options": {},
+        "genericCredentialType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer YOUR_SUPABASE_SERVICE_ROLE_KEY"
+            }
+          ]
+        }
+      },
+      "id": "update-conversation",
+      "name": "Update Conversation",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2500,
+        -50
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "bObRKs6h7LauVblb",
+          "name": "Supabase B2B Service Role"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "hot-lead",
+              "leftValue": "={{ $('Process AI Response').item.json.is_hot_lead }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "is-hot-lead",
+      "name": "Hot Lead?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        2750,
+        -200
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.telegram.org/botYOUR_TG_BOT_TOKEN/sendMessage",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"chat_id\": \"5191769218\",\n  \"text\": \"🔥 ГОРЯЧИЙ ЛИД!\\n\\nТелефон: {{ $('Process AI Response').item.json.phone }}\\nСообщение: {{ $('Prepare AI Context').item.json.user_message }}\\n\\nОтвет AI: {{ $('Process AI Response').item.json.ai_reply }}\",\n  \"parse_mode\": \"HTML\"\n}",
+        "options": {}
+      },
+      "id": "tg-hot-lead",
+      "name": "TG Hot Lead Alert",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3000,
+        -300
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "campaign-send",
+        "options": {}
+      },
+      "id": "campaign-trigger",
+      "name": "Campaign Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        600
+      ],
+      "webhookId": "b2b-campaign-send"
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://tvhrmrgsjwzmxdxipqmy.supabase.co/rest/v1/b2b_campaign_contacts?campaign_id=eq.{{ $json.body.campaign_id }}&status=eq.queued&select=id,contact_id,campaign_id,b2b_contacts(phone,company_name,city)&limit=100",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        },
+        "genericCredentialType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer YOUR_SUPABASE_SERVICE_ROLE_KEY"
+            }
+          ]
+        }
+      },
+      "id": "fetch-campaign-contacts",
+      "name": "Fetch Queued Contacts",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        250,
+        600
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "bObRKs6h7LauVblb",
+          "name": "Supabase B2B Service Role"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const item = $json;\nconst contact = item.b2b_contacts;\n\nif (!contact?.phone) {\n  return { skip: true };\n}\n\nreturn {\n  campaign_contact_id: item.id,\n  campaign_id: item.campaign_id,\n  contact_id: item.contact_id,\n  phone: contact.phone,\n  company_name: contact.company_name || '',\n  city: contact.city || ''\n};"
+      },
+      "id": "prepare-campaign-msg",
+      "name": "Prepare Campaign Msg",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        500,
+        600
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "has-phone",
+              "leftValue": "={{ $json.skip }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "has-phone-check",
+      "name": "Has Phone?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        750,
+        600
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://graph.facebook.com/v21.0/PLACEHOLDER_WA_PHONE_NUMBER_ID/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"messaging_product\": \"whatsapp\",\n  \"to\": \"{{ $json.phone }}\",\n  \"type\": \"template\",\n  \"template\": {\n    \"name\": \"{{ $('Campaign Trigger').item.json.body.template_name || 'b2b_cold_intro' }}\",\n    \"language\": { \"code\": \"ru\" },\n    \"components\": [\n      {\n        \"type\": \"body\",\n        \"parameters\": [\n          { \"type\": \"text\", \"text\": \"{{ $json.company_name }}\" }\n        ]\n      }\n    ]\n  }\n}",
+        "options": {
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 3000
+            }
+          },
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "send-campaign-wa",
+      "name": "Send Campaign WA",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1000,
+        500
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "META_WA_AUTH",
+          "name": "Meta WhatsApp Token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const prev = $('Prepare Campaign Msg').item.json;\nconst waResponse = $json;\n\nconst waMessageId = waResponse.messages?.[0]?.id || null;\nconst failed = !!waResponse.error;\n\nreturn {\n  campaign_contact_id: prev.campaign_contact_id,\n  campaign_id: prev.campaign_id,\n  contact_id: prev.contact_id,\n  status: failed ? 'failed' : 'sent',\n  wa_message_id: waMessageId,\n  error: waResponse.error?.message || null\n};"
+      },
+      "id": "process-campaign-result",
+      "name": "Process Send Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1250,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "=https://tvhrmrgsjwzmxdxipqmy.supabase.co/rest/v1/b2b_campaign_contacts?id=eq.{{ $json.campaign_contact_id }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"status\": \"{{ $json.status }}\",\n  \"sent_at\": \"{{ new Date().toISOString() }}\",\n  \"wa_message_id\": \"{{ $json.wa_message_id }}\"\n}",
+        "options": {},
+        "genericCredentialType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer YOUR_SUPABASE_SERVICE_ROLE_KEY"
+            }
+          ]
+        }
+      },
+      "id": "update-campaign-contact",
+      "name": "Update Campaign Contact",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1500,
+        500
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "bObRKs6h7LauVblb",
+          "name": "Supabase B2B Service Role"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://tvhrmrgsjwzmxdxipqmy.supabase.co/rest/v1/b2b_messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"contact_id\": \"{{ $json.contact_id }}\",\n  \"direction\": \"outbound\",\n  \"message_type\": \"template\",\n  \"body\": \"[Template: {{ $('Campaign Trigger').item.json.body.template_name || 'b2b_cold_intro' }}]\",\n  \"status\": \"{{ $json.status }}\",\n  \"is_ai_generated\": false,\n  \"wa_message_id\": \"{{ $json.wa_message_id }}\"\n}",
+        "options": {},
+        "genericCredentialType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer YOUR_SUPABASE_SERVICE_ROLE_KEY"
+            }
+          ]
+        }
+      },
+      "id": "save-campaign-msg",
+      "name": "Save Campaign Msg",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1500,
+        700
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "bObRKs6h7LauVblb",
+          "name": "Supabase B2B Service Role"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "=https://tvhrmrgsjwzmxdxipqmy.supabase.co/rest/v1/b2b_campaigns?id=eq.{{ $('Process Send Result').first().json.campaign_id }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"total_sent\": {{ $('Process Send Result').all().filter(i => i.json.status === 'sent').length }}\n}",
+        "options": {},
+        "genericCredentialType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer YOUR_SUPABASE_SERVICE_ROLE_KEY"
+            }
+          ]
+        }
+      },
+      "id": "update-campaign-stats",
+      "name": "Update Campaign Stats",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1750,
+        600
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "bObRKs6h7LauVblb",
+          "name": "Supabase B2B Service Role"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 10,
+              "triggerAtMinute": 0,
+              "daysInterval": 1
+            }
+          ]
+        }
+      },
+      "id": "followup-schedule",
+      "name": "Follow-up Schedule",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        1200
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Calculate date ranges for follow-ups\nconst now = new Date();\n\n// Follow-up 1: contacts sent 3 days ago\nconst fu1Date = new Date(now);\nfu1Date.setDate(fu1Date.getDate() - 3);\nconst fu1Start = fu1Date.toISOString().slice(0, 10) + 'T00:00:00';\nconst fu1End = fu1Date.toISOString().slice(0, 10) + 'T23:59:59';\n\n// Follow-up 2: contacts sent 7 days ago  \nconst fu2Date = new Date(now);\nfu2Date.setDate(fu2Date.getDate() - 7);\nconst fu2Start = fu2Date.toISOString().slice(0, 10) + 'T00:00:00';\nconst fu2End = fu2Date.toISOString().slice(0, 10) + 'T23:59:59';\n\n// Check if today is weekday (Mon-Fri)\nconst dayOfWeek = now.getDay();\nconst isWeekday = dayOfWeek >= 1 && dayOfWeek <= 5;\n\n// Check if within work hours (09:00-18:00 Almaty = UTC+5)\nconst almatyHour = (now.getUTCHours() + 5) % 24;\nconst isWorkHours = almatyHour >= 9 && almatyHour < 18;\n\nreturn {\n  fu1_start: fu1Start,\n  fu1_end: fu1End,\n  fu2_start: fu2Start,\n  fu2_end: fu2End,\n  is_weekday: isWeekday,\n  is_work_hours: isWorkHours,\n  should_run: isWeekday && isWorkHours\n};"
+      },
+      "id": "calc-followup-dates",
+      "name": "Calc Follow-up Dates",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        250,
+        1200
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "should-run",
+              "leftValue": "={{ $json.should_run }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "should-run-check",
+      "name": "Work Hours?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        500,
+        1200
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://tvhrmrgsjwzmxdxipqmy.supabase.co/rest/v1/b2b_campaign_contacts?status=eq.sent&followup_1_sent=eq.false&sent_at=gte.{{ $('Calc Follow-up Dates').item.json.fu1_start }}&sent_at=lte.{{ $('Calc Follow-up Dates').item.json.fu1_end }}&select=id,contact_id,campaign_id,b2b_contacts(phone,company_name),b2b_campaigns(followup_template_1)&limit=50",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        },
+        "genericCredentialType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer YOUR_SUPABASE_SERVICE_ROLE_KEY"
+            }
+          ]
+        }
+      },
+      "id": "fetch-fu1-contacts",
+      "name": "Fetch FU1 Contacts",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        750,
+        1100
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "bObRKs6h7LauVblb",
+          "name": "Supabase B2B Service Role"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://tvhrmrgsjwzmxdxipqmy.supabase.co/rest/v1/b2b_campaign_contacts?status=eq.sent&followup_1_sent=eq.true&followup_2_sent=eq.false&sent_at=gte.{{ $('Calc Follow-up Dates').item.json.fu2_start }}&sent_at=lte.{{ $('Calc Follow-up Dates').item.json.fu2_end }}&select=id,contact_id,campaign_id,b2b_contacts(phone,company_name),b2b_campaigns(followup_template_2)&limit=50",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        },
+        "genericCredentialType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer YOUR_SUPABASE_SERVICE_ROLE_KEY"
+            }
+          ]
+        }
+      },
+      "id": "fetch-fu2-contacts",
+      "name": "Fetch FU2 Contacts",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        750,
+        1300
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "bObRKs6h7LauVblb",
+          "name": "Supabase B2B Service Role"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const item = $json;\nconst contact = item.b2b_contacts;\nconst campaign = item.b2b_campaigns;\n\nif (!contact?.phone || !campaign?.followup_template_1) {\n  return { skip: true };\n}\n\nreturn {\n  campaign_contact_id: item.id,\n  contact_id: item.contact_id,\n  phone: contact.phone,\n  company_name: contact.company_name || '',\n  template_name: campaign.followup_template_1,\n  followup_number: 1\n};"
+      },
+      "id": "prepare-fu1",
+      "name": "Prepare FU1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1000,
+        1100
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const item = $json;\nconst contact = item.b2b_contacts;\nconst campaign = item.b2b_campaigns;\n\nif (!contact?.phone || !campaign?.followup_template_2) {\n  return { skip: true };\n}\n\nreturn {\n  campaign_contact_id: item.id,\n  contact_id: item.contact_id,\n  phone: contact.phone,\n  company_name: contact.company_name || '',\n  template_name: campaign.followup_template_2,\n  followup_number: 2\n};"
+      },
+      "id": "prepare-fu2",
+      "name": "Prepare FU2",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1000,
+        1300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://graph.facebook.com/v21.0/PLACEHOLDER_WA_PHONE_NUMBER_ID/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"messaging_product\": \"whatsapp\",\n  \"to\": \"{{ $json.phone }}\",\n  \"type\": \"template\",\n  \"template\": {\n    \"name\": \"{{ $json.template_name }}\",\n    \"language\": { \"code\": \"ru\" },\n    \"components\": [\n      {\n        \"type\": \"body\",\n        \"parameters\": [\n          { \"type\": \"text\", \"text\": \"{{ $json.company_name }}\" }\n        ]\n      }\n    ]\n  }\n}",
+        "options": {
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 3000
+            }
+          },
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "send-followup",
+      "name": "Send Follow-up",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1250,
+        1200
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "META_WA_AUTH",
+          "name": "Meta WhatsApp Token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const prev = $('Prepare FU1').item?.json || $('Prepare FU2').item?.json || {};\nconst fuNum = prev.followup_number || 1;\n\nconst updateField = fuNum === 1 ? 'followup_1_sent' : 'followup_2_sent';\nconst dateField = fuNum === 1 ? 'followup_1_at' : 'followup_2_at';\n\nreturn {\n  campaign_contact_id: prev.campaign_contact_id,\n  update_field: updateField,\n  date_field: dateField,\n  followup_number: fuNum\n};"
+      },
+      "id": "process-fu-result",
+      "name": "Process FU Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1500,
+        1200
+      ]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "=https://tvhrmrgsjwzmxdxipqmy.supabase.co/rest/v1/b2b_campaign_contacts?id=eq.{{ $json.campaign_contact_id }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"{{ $json.update_field }}\": true,\n  \"{{ $json.date_field }}\": \"{{ new Date().toISOString() }}\"\n}",
+        "options": {},
+        "genericCredentialType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer YOUR_SUPABASE_SERVICE_ROLE_KEY"
+            }
+          ]
+        }
+      },
+      "id": "update-fu-status",
+      "name": "Update FU Status",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1750,
+        1200
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "bObRKs6h7LauVblb",
+          "name": "Supabase B2B Service Role"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "whatsapp-status",
+        "options": {}
+      },
+      "id": "status-webhook",
+      "name": "WA Status Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        1800
+      ],
+      "webhookId": "b2b-wa-status"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const body = $json.body || $json;\nconst entry = body.entry?.[0];\nconst changes = entry?.changes?.[0];\nconst value = changes?.value;\n\nif (!value?.statuses?.length) {\n  return { skip: true };\n}\n\nconst status = value.statuses[0];\n\n// Map Meta status to our status\nconst statusMap = {\n  'sent': 'sent',\n  'delivered': 'delivered',\n  'read': 'read',\n  'failed': 'failed'\n};\n\nreturn {\n  wa_message_id: status.id,\n  status: statusMap[status.status] || status.status,\n  timestamp: status.timestamp,\n  recipient_id: status.recipient_id,\n  error_code: status.errors?.[0]?.code || null,\n  error_title: status.errors?.[0]?.title || null\n};"
+      },
+      "id": "extract-status",
+      "name": "Extract Status",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        250,
+        1800
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "not-skip",
+              "leftValue": "={{ $json.skip }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "valid-status-check",
+      "name": "Valid Status?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        500,
+        1800
+      ]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "=https://tvhrmrgsjwzmxdxipqmy.supabase.co/rest/v1/b2b_messages?wa_message_id=eq.{{ $json.wa_message_id }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"status\": \"{{ $json.status }}\"\n}",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        },
+        "genericCredentialType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer YOUR_SUPABASE_SERVICE_ROLE_KEY"
+            }
+          ]
+        }
+      },
+      "id": "update-msg-status",
+      "name": "Update Msg Status",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        750,
+        1700
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "bObRKs6h7LauVblb",
+          "name": "Supabase B2B Service Role"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "=https://tvhrmrgsjwzmxdxipqmy.supabase.co/rest/v1/b2b_campaign_contacts?wa_message_id=eq.{{ $json.wa_message_id }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"status\": \"{{ $json.status }}\"\n}",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        },
+        "genericCredentialType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer YOUR_SUPABASE_SERVICE_ROLE_KEY"
+            }
+          ]
+        }
+      },
+      "id": "update-campaign-contact-status",
+      "name": "Update Campaign Status",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        750,
+        1900
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "bObRKs6h7LauVblb",
+          "name": "Supabase B2B Service Role"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "is-read",
+              "leftValue": "={{ $json.status }}",
+              "rightValue": "read",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "is-read-check",
+      "name": "Is Read?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1000,
+        1800
+      ]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "=https://tvhrmrgsjwzmxdxipqmy.supabase.co/rest/v1/b2b_campaigns?id=in.(select campaign_id from b2b_campaign_contacts where wa_message_id='{{ $('Extract Status').item.json.wa_message_id }}')",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"total_{{ $('Extract Status').item.json.status }}\": \"b2b_campaigns.total_{{ $('Extract Status').item.json.status }} + 1\"\n}",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        },
+        "genericCredentialType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer YOUR_SUPABASE_SERVICE_ROLE_KEY"
+            }
+          ]
+        }
+      },
+      "id": "update-campaign-counters",
+      "name": "Update Counters",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1000,
+        1700
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "bObRKs6h7LauVblb",
+          "name": "Supabase B2B Service Role"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "allIncomingItems",
+        "options": {}
+      },
+      "id": "wa-webhook-response",
+      "name": "WA Webhook Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        750,
+        100
+      ]
+    }
+  ],
+  "connections": {
+    "WA Incoming Webhook": {
+      "main": [
+        [
+          {
+            "node": "Extract WA Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract WA Data": {
+      "main": [
+        [
+          {
+            "node": "Is Message?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "WA Webhook Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Message?": {
+      "main": [
+        [
+          {
+            "node": "Save to Supabase",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Save to Supabase": {
+      "main": [
+        [
+          {
+            "node": "Get Conversation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Conversation": {
+      "main": [
+        [
+          {
+            "node": "AI Enabled?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Enabled?": {
+      "main": [
+        [
+          {
+            "node": "Prepare AI Context",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Prepare AI Context": {
+      "main": [
+        [
+          {
+            "node": "OpenAI GPT-4.1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI GPT-4.1": {
+      "main": [
+        [
+          {
+            "node": "Process AI Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process AI Response": {
+      "main": [
+        [
+          {
+            "node": "Send WA Reply",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Update Conversation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send WA Reply": {
+      "main": [
+        [
+          {
+            "node": "Save AI Reply",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Hot Lead?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Hot Lead?": {
+      "main": [
+        [
+          {
+            "node": "TG Hot Lead Alert",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Campaign Trigger": {
+      "main": [
+        [
+          {
+            "node": "Fetch Queued Contacts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Queued Contacts": {
+      "main": [
+        [
+          {
+            "node": "Prepare Campaign Msg",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Campaign Msg": {
+      "main": [
+        [
+          {
+            "node": "Has Phone?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Phone?": {
+      "main": [
+        [
+          {
+            "node": "Send Campaign WA",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Send Campaign WA": {
+      "main": [
+        [
+          {
+            "node": "Process Send Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process Send Result": {
+      "main": [
+        [
+          {
+            "node": "Update Campaign Contact",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Save Campaign Msg",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Campaign Contact": {
+      "main": [
+        [
+          {
+            "node": "Update Campaign Stats",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Follow-up Schedule": {
+      "main": [
+        [
+          {
+            "node": "Calc Follow-up Dates",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calc Follow-up Dates": {
+      "main": [
+        [
+          {
+            "node": "Work Hours?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Work Hours?": {
+      "main": [
+        [
+          {
+            "node": "Fetch FU1 Contacts",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Fetch FU2 Contacts",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Fetch FU1 Contacts": {
+      "main": [
+        [
+          {
+            "node": "Prepare FU1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch FU2 Contacts": {
+      "main": [
+        [
+          {
+            "node": "Prepare FU2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare FU1": {
+      "main": [
+        [
+          {
+            "node": "Send Follow-up",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare FU2": {
+      "main": [
+        [
+          {
+            "node": "Send Follow-up",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Follow-up": {
+      "main": [
+        [
+          {
+            "node": "Process FU Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process FU Result": {
+      "main": [
+        [
+          {
+            "node": "Update FU Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "WA Status Webhook": {
+      "main": [
+        [
+          {
+            "node": "Extract Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Status": {
+      "main": [
+        [
+          {
+            "node": "Valid Status?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Valid Status?": {
+      "main": [
+        [
+          {
+            "node": "Update Msg Status",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Update Campaign Status",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Update Counters",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Is Read?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": "",
+    "availableInMCP": false
+  },
+  "staticData": null,
+  "meta": null,
+  "pinData": null,
+  "versionId": "b184182a-4828-452f-9db3-cbf0cc428115",
+  "activeVersionId": null,
+  "versionCounter": 4,
+  "triggerCount": 0,
+  "shared": [
+    {
+      "updatedAt": "2026-03-17T05:55:10.812Z",
+      "createdAt": "2026-03-17T05:55:10.812Z",
+      "role": "workflow:owner",
+      "workflowId": "8vGgyI6xgLzlPy67",
+      "projectId": "2WsXxyi4F6bNxiC2",
+      "project": {
+        "updatedAt": "2026-02-03T13:32:56.871Z",
+        "createdAt": "2026-02-03T13:32:51.447Z",
+        "id": "2WsXxyi4F6bNxiC2",
+        "name": "kuanyshzakir   <zakirkuanysh1@gmail.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "creatorId": "83b36704-19ef-4692-b3e8-85e343c8f6fb"
+      }
+    }
+  ],
+  "tags": [],
+  "activeVersion": null
+}
